@@ -24,7 +24,6 @@ interface IERC721TokenReceiver {
 }
 
 contract NFinTech is IERC721 {
-    // Note: I have declared all variables you need to complete this challenge
     string private _name;
     string private _symbol;
 
@@ -34,9 +33,11 @@ contract NFinTech is IERC721 {
     mapping(address => uint256) private _balances;
     mapping(uint256 => address) private _tokenApproval;
     mapping(address => bool) private isClaim;
-    mapping(address => mapping(address => bool)) _operatorApproval;
+    mapping(address => mapping(address => bool)) private _operatorApproval;
 
     error ZeroAddress();
+    error NotApproved();
+    error NotOwner();
 
     constructor(string memory name_, string memory symbol_) payable {
         _name = name_;
@@ -44,14 +45,12 @@ contract NFinTech is IERC721 {
     }
 
     function claim() public {
-        if (isClaim[msg.sender] == false) {
+        if (!isClaim[msg.sender]) {
             uint256 id = _tokenId;
             _owner[id] = msg.sender;
-
-            _balances[msg.sender] += 1;
+            _balances[msg.sender]++;
             isClaim[msg.sender] = true;
-
-            _tokenId += 1;
+            _tokenId++;
         }
     }
 
@@ -75,30 +74,76 @@ contract NFinTech is IERC721 {
     }
 
     function setApprovalForAll(address operator, bool approved) external {
-        // TODO: please add your implementaiton here
+    	require(operator != address(0));
+        _operatorApproval[msg.sender][operator] = approved;
+        emit ApprovalForAll(msg.sender, operator, approved);
     }
 
     function isApprovedForAll(address owner, address operator) public view returns (bool) {
-        // TODO: please add your implementaiton here
+        return _operatorApproval[owner][operator];
     }
 
     function approve(address to, uint256 tokenId) external {
-        // TODO: please add your implementaiton here
+        address owner = ownerOf(tokenId);
+        require(msg.sender == owner || _operatorApproval[owner][msg.sender]);
+        _tokenApproval[tokenId] = to;
+        emit Approval(owner, to, tokenId);
     }
 
     function getApproved(uint256 tokenId) public view returns (address operator) {
-        // TODO: please add your implementaiton here
+        require(_owner[tokenId] != address(0));
+        return _tokenApproval[tokenId];
     }
 
     function transferFrom(address from, address to, uint256 tokenId) public {
-        // TODO: please add your implementaiton here
+        require(_owner[tokenId] != address(0));
+        address owner = ownerOf(tokenId);
+        
+        require(msg.sender == owner || _tokenApproval[tokenId] == msg.sender || _operatorApproval[owner][msg.sender]);
+        require(from == owner);
+        require(to != address(0));
+
+        _tokenApproval[tokenId] = to;
+        emit Approval(owner, to, tokenId);
+
+        _balances[from] = _balances[from] - 1;
+        _balances[to] = _balances[to] + 1;
+        _owner[tokenId] = to;
+
+        emit Transfer(from, to, tokenId);
     }
 
     function safeTransferFrom(address from, address to, uint256 tokenId, bytes calldata data) public {
-        // TODO: please add your implementaiton here
+        transferFrom(from, to, tokenId);
+        require(_checkOnERC721Received(from, to, tokenId, data), "ERC721: transfer to non ERC721Receiver implementer");
     }
 
     function safeTransferFrom(address from, address to, uint256 tokenId) public {
-        // TODO: please add your implementaiton here
+        transferFrom(from, to, tokenId);
+        require(_checkOnERC721Received(from, to, tokenId, ""), "ERC721: transfer to non ERC721Receiver implementer");
+    }
+
+    function _transfer(address from, address to, uint256 tokenId) private {
+        _owner[tokenId] = to;
+        _balances[from]--;
+        _balances[to]++;
+        emit Transfer(from, to, tokenId);
+    }
+
+    function _checkOnERC721Received(address from, address to, uint256 tokenId, bytes memory data) private returns (bool) {
+        if (_isContract(to)) {
+            (bool success, bytes memory response) = to.call(abi.encodeWithSelector(IERC721TokenReceiver(to).onERC721Received.selector, msg.sender, from, tokenId, data));
+            return success && (response.length == 0 || abi.decode(response, (bytes4)) == IERC721TokenReceiver(to).onERC721Received.selector);
+        } else {
+            return true;
+        }
+    }
+
+    function _isContract(address addr) private view returns (bool) {
+        uint256 size;
+        assembly {
+            size := extcodesize(addr)
+        }
+        return size > 0;
     }
 }
